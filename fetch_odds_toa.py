@@ -46,7 +46,10 @@ def fetch():
                             else:
                                 value = "Draw"
                         else:
-                            value = f'{o["name"]} {o["point"]}'
+                                                        p = o.get("point")
+                            if p is None:
+                                continue
+                            value = f'{o["name"]} {p}'
                         conn.execute("""
                             INSERT INTO odds (fixture_id, bet, value, kvota, bookmaker)
                             VALUES (?,?,?,?,?)
