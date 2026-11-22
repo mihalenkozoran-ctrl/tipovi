@@ -1,24 +1,19 @@
 import json
-import re
+from datetime import date
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
 from db import get_conn
 from predict import matrica, verovatnoce
-from tiketi import preko, najbolje_kvote
 
 app = FastAPI()
-
-MIN_KVOTA = 1.40
-MAX_KVOTA = 2.20
-MIN_VALUE = 1.00
 
 PAGE = """<!DOCTYPE html>
 <html lang="bs">
 <head>
 <meta charset="utf-8">
-<title>Tipovi — model</title>
+<title>Tipovi — zvanicna knjiga</title>
 <style>
  body { font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; padding: 20px; }
  h1 { font-size: 22px; }
@@ -32,12 +27,13 @@ PAGE = """<!DOCTYPE html>
  .jac { color: #4ade80; font-weight: bold; }
  .plus { color: #4ade80; font-weight: bold; }
  .minus { color: #f87171; font-weight: bold; }
+ .oznaka { background:#16a34a; color:white; padding:2px 8px; border-radius:4px; font-size:12px; }
 </style>
 </head>
 <body>
-<h1>⚽ Value tiketi <span style="color:#4ade80">({broj_tiketa})</span></h1>
+<h1>⚽ Tiketi ZA IGRU — {dan} ({broj_tiketa})</h1>
 <table>
-<tr><th>Utakmica</th><th>Tip</th><th>Kvota</th><th>Model</th><th>Value</th></tr>
+<tr><th>Utakmica</th><th>Tip</th><th>Kvota</th><th>Model</th><th>Value</th><th></th></tr>
 {tiketi}
 </table>
 
@@ -51,7 +47,7 @@ PAGE = """<!DOCTYPE html>
 {po_tipu}
 </table>
 
-<h2>Sve utakmice ({broj_mec})</h2>
+<h2>🔍 Analiza — sve utakmice ({broj_mec}) <span style="font-size:12px;color:#94a3b8">(nije predlog za igru)</span></h2>
 <table>
 <tr><th>Liga</th><th>Utakmica</th><th>1</th><th>X</th><th>2</th>
 <th>1X</th><th>X2</th><th>12</th><th>V1.5</th><th>V2.5</th><th>V3.5</th><th>BTTS</th></tr>
@@ -60,16 +56,6 @@ PAGE = """<!DOCTYPE html>
 </body>
 </html>"""
 
-
-def statistika(conn):
-    uk = conn.execute("""
-        SELECT COUNT(*) n,
-               SUM(CASE WHEN status='WON' THEN 1 ELSE 0 END) won,
-               SUM(CASE WHEN status='LOST' THEN 1 ELSE 0 END) lost,
-               SUM(CASE WHEN status IN ('WON','LOST') THEN profit ELSE 0 END) profit
-        FROM tips
-    """).fetchone()
-   
 
 def statistika(conn):
     uk = conn.execute("""
@@ -94,68 +80,45 @@ def svi_podaci():
         model = json.load(f)
 
     conn = get_conn()
+    danas = date.today().isoformat()
+
+    tiketi = [(r["value"], r["utakmica"], r["tip"], r["kvota"], r["verovatnoca"])
+              for r in conn.execute(
+                  "SELECT * FROM tips WHERE status='OPEN' AND datum=? ORDER BY value DESC",
+                  (danas,))]
+
     utakmice = conn.execute("""
         SELECT id, datum, liga, domacin, gost
         FROM fixtures WHERE odigrano = 0 ORDER BY datum
     """).fetchall()
-
-    tiketi = []
     mecevi = []
     for u in utakmice:
         if u["domacin"] not in model["timovi"] or u["gost"] not in model["timovi"]:
             continue
-        P = matrica(model, u["domacin"], u["gost"])
-        v = verovatnoce(P)
-        kvote = najbolje_kvote(conn, u["id"])
+        v = verovatnoce(matrica(model, u["domacin"], u["gost"]))
         ime = f"{u['domacin']} — {u['gost']}"
-
         celije = "".join(f"<td>{round(v[k] * 100)}%</td>"
                          for k in ["1", "X", "2", "1X", "X2", "12", "v15", "v25", "v35", "btts"])
         mecevi.append(f"<tr><td style='color:#94a3b8;font-size:12px'>{u['liga']}</td>"
                       f"<td class='ime'>{ime}</td>{celije}</tr>")
 
-        prob = {
-            ("Match Winner", "Home"): ("1", v["1"]),
-            ("Match Winner", "Draw"): ("X", v["X"]),
-            ("Match Winner", "Away"): ("2", v["2"]),
-            ("Double Chance", "Home/Draw"): ("1X", v["1X"]),
-            ("Double Chance", "Draw/Away"): ("X2", v["X2"]),
-            ("Double Chance", "Home/Away"): ("12", v["12"]),
-            ("Both Teams To Score", "Yes"): ("BTTS", v["btts"]),
-            ("Both Teams To Score", "No"): ("BTTS-N", v["nbtts"]),
-        }
-        for (bet, value_s), kvota in kvote.items():
-            if bet == "Over/Under":
-                m = re.match(r"(Over|Under) (\d+\.\d)", value_s)
-                if not m:
-                    continue
-                smer, linija = m.group(1), m.group(2)
-                p_over = preko(P, linija)
-                p = p_over if smer == "Over" else 1 - p_over
-                oznaka = f"{smer[0]}{linija}"
-            else:
-                if (bet, value_s) not in prob:
-                    continue
-                oznaka, p = prob[(bet, value_s)]
-            value = p * kvota
-            if MIN_KVOTA <= kvota <= MAX_KVOTA and value >= MIN_VALUE:
-                tiketi.append((value, ime, oznaka, kvota, p))
-
     uk, po_tipu = statistika(conn)
     conn.close()
-    tiketi.sort(reverse=True)
     return tiketi, mecevi, uk, po_tipu
+
+
 @app.get("/", response_class=HTMLResponse)
 def pocetna():
     tiketi, mecevi, uk, po_tipu = svi_podaci()
+    danas = date.today().isoformat()
 
     redovi_t = ""
     for value, ime, oznaka, kvota, p in tiketi:
         redovi_t += (f"<tr class='tip'><td class='ime'>{ime}</td><td>{oznaka}</td>"
                      f"<td>{kvota:.2f}</td><td>{round(p*100)}%</td>"
-                     f"<td class='jac'>{value:.2f}</td></tr>")
+                     f"<td class='jac'>{value:.2f}</td><td><span class='oznaka'>ZA IGRU</span></td></tr>")
     if not redovi_t:
-        redovi_t = "<tr><td colspan='5'>Danas nema tiketa.</td></tr>"
+        redovi_t = "<tr><td colspan='6'>Danas nema tiketa.</td></tr>"
 
     zatvoreno = (uk["won"] or 0) + (uk["lost"] or 0)
     profit = uk["profit"] or 0
@@ -180,7 +143,8 @@ def pocetna():
     if not redovi_p:
         redovi_p = "<tr><td colspan='6'>Jos nema razresenih tiketa.</td></tr>"
 
-    return (PAGE.replace("{broj_tiketa}", str(len(tiketi)))
+    return (PAGE.replace("{dan}", danas)
+                .replace("{broj_tiketa}", str(len(tiketi)))
                 .replace("{tiketi}", redovi_t)
                 .replace("{zatvoreno}", str(zatvoreno))
                 .replace("{ukupno}", ukupno)
