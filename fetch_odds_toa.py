@@ -1,3 +1,4 @@
+import unicodedata
 import requests
 from datetime import date
 from config import ODDS_KEY
@@ -10,11 +11,35 @@ SPORTS = [
     "soccer_belgium_first_div", "soccer_turkey_super_league",
 ]
 
+IME = {
+    "sporting lisbon": "sporting cp",
+    "royal antwerp": "antwerp",
+    "cercle brugge ksv": "cercle brugge",
+    "union saint gilloise": "union st gilloise",
+    "leuven": "oh leuven",
+    "raal la louviere": "la louviere",
+    "basaksehir": "istanbul basaksehir",
+    "caykur rizespor": "rizespor",
+    "gazisehir gaziantep": "gaziantep",
+    "twente enschede": "twente",
+    "kv mechelen": "mechelen",
+    "kv kortrijk": "kortrijk",
+}
+
+TOKENI = (" fc", " cf", " afc", " sc", " cs", " kv", " sv", " sk",
+          " fk", " bk", " cd", " ud", " ac", " sd", " rc", " ca", " as", " os", ".")
+
 
 def norm(s):
-    for x in (" fc", " cf", " afc", " united", "."):
-        s = s.lower().replace(x, "")
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
+    s = s.lower().replace("-", " ")
+    for t in TOKENI:
+        s = s.replace(t, "")
     return " ".join(s.split())
+
+
+def api_ime(s):
+    return IME.get(s, s)
 
 
 def fetch():
@@ -36,7 +61,8 @@ def fetch():
             print(sport, "GRESKA:", data.get("error") or data)
             continue
         for ev in data:
-            fid = mapa.get((norm(ev["home_team"]), norm(ev["away_team"])))
+            fid = mapa.get((api_ime(norm(ev["home_team"])),
+                            api_ime(norm(ev["away_team"]))))
             if not fid:
                 print("Nema para:", ev["home_team"], "-", ev["away_team"])
                 continue
