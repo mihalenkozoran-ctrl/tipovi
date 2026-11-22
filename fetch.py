@@ -1,15 +1,15 @@
 import requests
-from datetime import date
+from datetime import date, timedelta
 from config import API_KEY, BASE_URL
 from db import get_conn, init_db
 
 HEADERS = {"x-apisports-key": API_KEY}
 
-def fetch_today():
-    today = date.today().isoformat()
+
+def fetch_dan(dan):
     r = requests.get(f"{BASE_URL}/fixtures",
                      headers=HEADERS,
-                     params={"date": today},
+                     params={"date": dan.isoformat()},
                      timeout=30)
     data = r.json()
     conn = get_conn()
@@ -33,8 +33,10 @@ def fetch_today():
         count += 1
     conn.commit()
     conn.close()
-    print(f"Danas ({today}) ukupno utakmica: {count}")
+    print(f"{dan}: ukupno utakmica: {count}")
+
 
 if __name__ == "__main__":
     init_db()
-    fetch_today()
+    fetch_dan(date.today() - timedelta(days=1))
+    fetch_dan(date.today())
