@@ -3,13 +3,19 @@ from datetime import date
 from config import ODDS_KEY
 from db import get_conn, init_db
 
-SPORTS = ["soccer_epl", "soccer_spain_la_liga", "soccer_italy_seria_a",
-          "soccer_germany_bundesliga", "soccer_france_ligue_one"]
+SPORTS = [
+    "soccer_epl", "soccer_spain_la_liga", "soccer_italy_seria_a",
+    "soccer_germany_bundesliga", "soccer_france_ligue_one",
+    "soccer_netherlands_eredivisie", "soccer_portugal_primeira_liga",
+    "soccer_belgium_first_div", "soccer_turkey_super_league",
+]
+
 
 def norm(s):
     for x in (" fc", " cf", " afc", " united", "."):
         s = s.lower().replace(x, "")
     return " ".join(s.split())
+
 
 def fetch():
     today = date.today().isoformat()
@@ -46,7 +52,7 @@ def fetch():
                             else:
                                 value = "Draw"
                         else:
-                                                        p = o.get("point")
+                            p = o.get("point")
                             if p is None:
                                 continue
                             value = f'{o["name"]} {p}'
@@ -63,6 +69,7 @@ def fetch():
         print(sport, "gotovo")
     conn.close()
     print("Ukupno upisano:", ukupno)
+
 
 if __name__ == "__main__":
     init_db()
